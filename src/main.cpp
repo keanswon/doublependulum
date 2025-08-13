@@ -13,12 +13,10 @@
 
 const float ROD_WIDTH = 0.005;
 const float CIRCLE_RADIUS = 0.02f;
-const float ROD_LENGTH1 = 0.3f;
-const float ROD_LENGTH2 = 0.3f;
+const float ROD_LENGTH = 0.3f;
 const float GRAVITY = 9.81f; // m/s^2
 const float DAMPING = 0.992f; // Damping factor for pendulum motion
-const float ROD_MASS1 = 0.1f; // Mass of the rod (arbitrary value for simulation)
-const float ROD_MASS2 = 0.1f; // Mass of the second rod (arbitrary value for simulation)
+const float ROD_MASS = 0.1f; // Mass of the rod (arbitrary value for simulation)
 
 float h = 0.005f;           // fixed timestep
 float accumulator = 0.0f;
@@ -49,8 +47,8 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 GLfloat rectVertices[] = {
     -ROD_WIDTH,  0.0f, 0.0f,  // Left middle
      ROD_WIDTH,  0.0f, 0.0f,  // Right middle
-     ROD_WIDTH,  -ROD_LENGTH1, 0.0f,  // Right top
-    -ROD_WIDTH,  -ROD_LENGTH1, 0.0f   // Left top
+     ROD_WIDTH,  -ROD_LENGTH, 0.0f,  // Right top
+    -ROD_WIDTH,  -ROD_LENGTH, 0.0f   // Left top
 };
 
 GLuint rectIndices[] = {
