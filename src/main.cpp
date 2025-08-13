@@ -27,6 +27,7 @@
 const float ROD_WIDTH = 0.005;
 const float CIRCLE_RADIUS = 0.02f;
 const float ROD_LENGTH = 0.3f;
+const float ROD_LENGTH2 = 0.3f; // length of rod 2
 const float GRAVITY = 9.81f; // m/s^2
 const float DAMPING = 0.992f; // Damping factor for pendulum motion
 const float BOB_MASS = 0.1f;
@@ -60,12 +61,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 
 
 // --- CREATING SHAPES ---
-GLfloat rectVertices[] = {
-    -ROD_WIDTH,  0.0f, 0.0f,  // Left middle
-     ROD_WIDTH,  0.0f, 0.0f,  // Right middle
-     ROD_WIDTH,  -ROD_LENGTH, 0.0f,  // Right top
-    -ROD_WIDTH,  -ROD_LENGTH, 0.0f   // Left top
-};
+
 
 GLuint rectIndices[] = {
     0, 1, 2,
@@ -75,7 +71,13 @@ VAO* rectVAO = nullptr;
 VBO* rectVBO = nullptr;
 EBO* rectEBO = nullptr;
 
-void SetupRect() {
+void SetupRect(float rod_length=ROD_LENGTH) {
+    GLfloat rectVertices[] = {
+        -ROD_WIDTH,  0.0f, 0.0f,   // left mid (pivot)
+         ROD_WIDTH,  0.0f, 0.0f,   // right mid (pivot)
+         ROD_WIDTH, -1.0f, 0.0f,   // right end
+        -ROD_WIDTH, -1.0f, 0.0f    // left end
+    };
     rectVAO = new VAO();
     rectVBO = new VBO(rectVertices, sizeof(rectVertices));
     rectEBO = new EBO(rectIndices, sizeof(rectIndices));
@@ -117,9 +119,9 @@ void SetupCircle() {
     for (int i = 0; i < NUM_VERTICES; ++i) {
         float angle2 = (2.0 * M_PI * i) / NUM_VERTICES;
         int idx = (i + 1) * 3;  // +1 because first vertex is center
-        CircleVertices[idx] = cos(angle2) * CIRCLE_RADIUS;     // x
-        CircleVertices[idx + 1] = sin(angle2) * CIRCLE_RADIUS; // y
-        CircleVertices[idx + 2] = 0.0f;              // z
+        CircleVertices[idx] = cos(angle2) * CIRCLE_RADIUS;          // x
+        CircleVertices[idx + 1] = sin(angle2) * CIRCLE_RADIUS;      // y
+        CircleVertices[idx + 2] = 0.0f;                             // z
     }
 
     int lastIdx = (NUM_VERTICES + 1) * 3;
@@ -308,22 +310,38 @@ int main(){
         
         // Send transformation to shader and draw rods
         GLuint transformLoc = glGetUniformLocation(shaderProgram.ID, "transform");
-        glm::mat4 T1 = glm::rotate(glm::mat4(1.0f), interpolatedAngle, glm::vec3(0,0,1));
-        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(T1));
+        // 1) Unscaled base transforms (for correct circle shapes)
+        glm::mat4 T1_noscale = glm::rotate(glm::mat4(1.0f), interpolatedAngle,  glm::vec3(0,0,1));
+        glm::mat4 T2_noscale = glm::translate(T1_noscale, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
+        T2_noscale = glm::rotate(T2_noscale, interpolatedAngle2, glm::vec3(0,0,1));
+
+        // 2) Scaled transforms for rods (scale along Y by each rod’s length)
+        glm::mat4 Rod1 = glm::rotate(glm::mat4(1.0f), interpolatedAngle, glm::vec3(0,0,1));
+        Rod1 = glm::scale(Rod1, glm::vec3(1.0f, ROD_LENGTH, 1.0f));
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(Rod1));
         DrawRect();
 
-        glm::mat4 T2 = glm::translate(T1, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
-        T2 = glm::rotate(T2, interpolatedAngle2, glm::vec3(0,0,1));
-        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(T2));
+        glm::mat4 Rod2 = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+        // place Rod2 at the end of Rod1, then rotate + scale it
+        Rod2 = glm::rotate(glm::mat4(1.0f), interpolatedAngle, glm::vec3(0,0,1));
+        Rod2 = glm::translate(Rod2, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
+        Rod2 = glm::rotate(Rod2, interpolatedAngle2, glm::vec3(0,0,1));
+        Rod2 = glm::scale(Rod2, glm::vec3(1.0f, ROD_LENGTH2, 1.0f));
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(Rod2));
         DrawRect();
 
-        // draw bobs now
-        DrawCircle();
+        // 3) Circles: use the unscaled transforms so they stay round
+        glm::mat4 T1_noscale_bob = glm::translate(T1_noscale, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
 
-        // Update transform matrix for the bob (circle) - move it to end of rod
-        glm::mat4 Tbob = glm::translate(T2, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
+        // Use the translated matrix here (not T1_noscale)
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(T1_noscale_bob));
+        DrawCircle();  // first bob at end of rod1
+
+        glm::mat4 Tbob = glm::translate(T2_noscale, glm::vec3(0.0f, -ROD_LENGTH2, 0.0f));
         glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(Tbob));
-        DrawCircle();
+        DrawCircle();  // second bob at end of rod2
+
+
         
         glfwSwapBuffers(window);
         glfwPollEvents();
