@@ -15,23 +15,14 @@
 #include "ebo.h"
 #include "shaderClass.h"
 
-const float ROD_WIDTH = 0.005;
-const float CIRCLE_RADIUS = 0.02f;
-const float GRAVITY = 9.81f; // m/s^2
-
-float ROD_LENGTH = 0.3f;
-float ROD_LENGTH2 = 0.3f; // length of rod 2
-float DAMPING = 0.992f; // Damping factor for pendulum motion
-float BOB_MASS = 0.1f;
-float BOB_MASS2 = 0.1f;
 float h = 0.005f;           // fixed timestep
 float accumulator = 0.0f;
 float prevTime = glfwGetTime();
 
-// mouse dragging vars
-bool dragging = false;
-double mouseX, mouseY;
-double lastMouseX, lastMouseY;
+// mouse dragging vars -- outdated, but kept for reference
+// bool dragging = false;
+// double mouseX, mouseY;
+// double lastMouseX, lastMouseY;
 
 int winWidth = 800;
 int winHeight = 800;
@@ -44,15 +35,28 @@ float theta2 = 0;
 float angularVelocity = 0.0f;
 float angularVelocity2 = 0.0f;  // Initial velocity
 
+const float ROD_WIDTH = 0.005;
+const float CIRCLE_RADIUS = 0.02f;
+const float GRAVITY = 9.81f; // m/s^2
+
+float ROD_LENGTH = 0.3f;
+float ROD_LENGTH2 = 0.3f; // length of rod 2
+float DAMPING = 0.992f; // Damping factor for pendulum motion
+float BOB_MASS = 0.1f;
+float BOB_MASS2 = 0.1f;
+
+// initial angles for reset
 bool paused = false;
 float theta1_init = theta1, theta2_init = theta2;
+
+// functions to pause on change : one for sliders, one for inputs
+inline bool PauseIf(bool changed, bool& paused) { paused |= changed; return changed; }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     winWidth = width;
     winHeight = height;
     glViewport(0, 0, width, height);
 }
-
 
 // --- CREATING SHAPES ---
 GLuint rectIndices[] = {
@@ -150,6 +154,7 @@ void DrawCircle() {
 
 // --- PHYSICS FOR PENDULUM ---
 void UpdatePendulum(float dt) {
+    // intermediate calculations
     float num1 = -GRAVITY * (2*BOB_MASS+ BOB_MASS2) * sin(theta1);
     float num2 = -BOB_MASS2 * GRAVITY * sin(theta1 - 2*theta2);
     float num3 = -2*sin(theta1 - theta2) * BOB_MASS2 *
@@ -206,70 +211,11 @@ int main(){
         return -1; 
     }  
     
-    // using window pixels -- outdated, but kept for reference
-    // // init callbacks
-    // glfwSetCursorPosCallback(window, [](GLFWwindow* window, double xpos, double ypos) {
-    //     // pixels -> NDC
-    //     mouseX_ndc = 2.0f * float(xpos) / float(winWidth) - 1.0f;
-    //     mouseY_ndc = 1.0f - 2.0f * float(ypos) / float(winHeight);
-
-    //     std::cout << "Mouse Pos: (" << xpos << ", " << ypos << ")" << std::endl; // debugging
-    //     std::cout << "Mouse NDC: (" << mouseX_ndc << ", " << mouseY_ndc << ")" << std::endl; // debugging
-    //     std::cout << "Window Size: (" << winWidth << ", " << winHeight << ")" << std::endl; // debugging
-
-    //     // fix aspect if not square
-    //     if (winWidth != winHeight) {
-    //         mouseX_ndc *= (float)winWidth / (float)winHeight;
-    //     }
-
-    //     if (dragging) {
-    //         angle = atan2(mouseX_ndc, -mouseY_ndc);  // angle from +Y
-    //         angularVelocity = 0.0f;                 // don’t fight the drag
-    //     }
-    // });
-
-    // using framebuffer size for accurate mouse position
-    // this will be invalid for double pendulums
-    // glfwSetCursorPosCallback(window, [](GLFWwindow* w, double xpos, double ypos){
-
-    //     // using framebuffer size to get accurate mouse position
-    //     float sx, sy;
-    //     glfwGetWindowContentScale(w, &sx, &sy);       // e.g., 2.0, 2.0 on Retina
-    //     double x_fb = xpos * sx;
-    //     double y_fb = ypos * sy;
-
-    //     // safer: use the actual current viewport
-    //     int vp[4];
-    //     glGetIntegerv(GL_VIEWPORT, vp);               // {x, y, width, height}
-    //     mouseX_ndc =  2.0f * float(x_fb - vp[0]) / float(vp[2]) - 1.0f;
-    //     mouseY_ndc = -2.0f * float(y_fb - vp[1]) / float(vp[3]) + 1.0f;
-
-    //     if (dragging) {
-    //         theta1 = atan2(mouseX_ndc, -mouseY_ndc);
-    //         angularVelocity = 0.0f;
-    //     }
-    // });
-
-    // glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods) {
-    //     if (button != GLFW_MOUSE_BUTTON_LEFT) return;
-
-    //     if (action == GLFW_PRESS) {
-    //         // bob position from current angle (pivot at origin)
-    //         float bobX =  sin(theta1) * ROD_LENGTH;
-    //         float bobY =  -cos(theta1) * ROD_LENGTH;
-
-    //         float dx = mouseX_ndc - bobX;
-    //         float dy = mouseY_ndc - bobY;
-    //         float dist = std::sqrt(dx*dx + dy*dy);
-
-    //         // pick radius lenient so it's easy to grab
-    //         if (dist < CIRCLE_RADIUS * 5.0f)  {
-    //             dragging = true;
-    //         }
-    //     } else if (action == GLFW_RELEASE) {
-    //         dragging = false;
-    //     }
-    // });
+    /**
+     * 
+     * CURSOR DRAGGING LOGIC HERE
+     * 
+     */
 
 
     // Bring window into the current context
@@ -313,65 +259,79 @@ int main(){
         ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pivot);
         ImGui::SetNextWindowBgAlpha(0.8f);
 
+
+        // helper function to pause on input commit
+        auto PauseOnCommit = [&](bool changed) -> bool {
+            bool committed = ImGui::IsItemDeactivatedAfterEdit();
+            if (changed && committed) { 
+                paused = true; 
+                return true; 
+            }
+            return false;
+        };
+
+        // controls box
         if (ImGui::Begin("Controls", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Checkbox("Pause", &paused);
 
             ImGui::PushItemWidth(150);
-            ImGui::SliderFloat("Damping", &DAMPING, 0.90f, 1.0f, "%.4f");
+            
+            PauseIf(ImGui::SliderFloat("Damping", &DAMPING, 0.90f, 1.0f, "%.4f"), paused);
 
-            if(ImGui::InputFloat("Rod 1 length", &ROD_LENGTH, 0.05f, 0.8f, "%.01f")) paused = true;
-            if(ImGui::InputFloat("Rod 2 length", &ROD_LENGTH2, 0.05f, 0.8f, "%.01f")) paused = true;
-
-            if(ImGui::InputFloat("Mass 1", &BOB_MASS1, 0.05f, 0.8f, "%.01f")) paused = true;
-            if(ImGui::InputFloat("Mass 2", &BOB_MASS2 0.05f, 0.8f, "%.01f")) paused = true;
-
-            if (ImGui::SliderAngle("Angle 1", &theta1, -180.0f, 180.0f)) { 
-                paused = true;
+            if (PauseOnCommit(ImGui::InputFloat("Rod 1 length", &ROD_LENGTH, 0.05f, 0.8f, "%.01f"))) {
+                ROD_LENGTH = glm::clamp(ROD_LENGTH, 0.05f, 0.5f);
             }
 
-            ImGui::SameLine();
+            if (PauseOnCommit(ImGui::InputFloat("Rod 2 length", &ROD_LENGTH2, 0.05f, 0.8f, "%.01f"))) {
+                ROD_LENGTH2 = glm::clamp(ROD_LENGTH2, 0.05f, 0.5f);
+            }
 
+            if (PauseOnCommit(ImGui::InputFloat("Mass 1", &BOB_MASS, 0.05f, 0.8f, "%.2f"))) {
+                BOB_MASS = glm::clamp(BOB_MASS, 0.05f, 2.0f);
+            }
+
+            if (PauseOnCommit(ImGui::InputFloat("Mass 2", &BOB_MASS2, 0.05f, 0.8f, "%.2f"))) {
+                BOB_MASS2 = glm::clamp(BOB_MASS2, 0.05f, 2.0f);
+            }
+
+            // use PauseIf for angle sliders
+            PauseIf(ImGui::SliderAngle("Angle 1", &theta1, -180.0f, 180.0f), paused);
+            ImGui::SameLine();
+            
             ImGui::PushItemWidth(100);
             static float a1_deg = 0.f, a2_deg = 0.f;
             a1_deg = theta1 * 180.0f / M_PI;
-            if (ImGui::InputFloat("Angle 1 (deg)", &a1_deg, 1.0f, 5.0f, "%.1f")) {
-                paused = true;
-            }
-            ImGui::PopItemWidth();
-
-            if (ImGui::IsItemDeactivatedAfterEdit()) {                         
+            
+            if (PauseOnCommit(ImGui::InputFloat("Angle 1 (deg)", &a1_deg, 1.0f, 5.0f, "%.1f"))) {
                 theta1 = a1_deg * M_PI / 180.0f;
                 angularVelocity = 0.0f;
                 accumulator = 0.0f;
             }
+            ImGui::PopItemWidth();
 
-            if (ImGui::SliderAngle("Angle 2", &theta2, -180.0f, 180.0f)) {
-                paused = true;
-            }
+            PauseIf(ImGui::SliderAngle("Angle 2", &theta2, -180.0f, 180.0f), paused);
             ImGui::SameLine();
 
             ImGui::PushItemWidth(100);
             a2_deg = theta2 * 180.0f / M_PI;
-            if(ImGui::InputFloat("Angle 2 (deg)", &a2_deg, 1.0f, 5.0f, "%.1f")) {
-                paused = true;
-            } 
-            ImGui::PopItemWidth();
             
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                theta2 = a2_deg * M_PI / 180.0f;
-                angularVelocity = 0.0f;
+            if (PauseOnCommit(ImGui::InputFloat("Angle 2 (deg)", &a2_deg, 1.0f, 5.0f, "%.1f"))) {
+                theta2 = a2_deg * M_PI / 180.0f; 
                 angularVelocity2 = 0.0f;
                 accumulator = 0.0f;
             }
             ImGui::PopItemWidth();
+            ImGui::PopItemWidth();
 
             if (ImGui::Button("Reset")) {
-                theta1 = theta1_init; theta2 = theta2_init;
-                angularVelocity = 0; angularVelocity2 = 0;
+                theta1 = theta1_init; 
+                theta2 = theta2_init;
+                angularVelocity = 0; 
+                angularVelocity2 = 0;
                 accumulator = 0;
-                BOB_MASS2=BOB_MASS=1.0f;
-                ROD_LENGTH=ROD_LENGTH2=0.3f;
-                DAMPING=0.992f;
+                BOB_MASS2 = BOB_MASS = 1.0f;
+                ROD_LENGTH = ROD_LENGTH2 = 0.3f;
+                DAMPING = 0.992f;
                 paused = true;
             }
 
@@ -462,3 +422,68 @@ int main(){
 
     return 0;
 }
+
+// cursor dragging -- outdated, but kept for reference -- may reimplement for double pendulum
+// // init callbacks
+// glfwSetCursorPosCallback(window, [](GLFWwindow* window, double xpos, double ypos) {
+//     // pixels -> NDC
+//     mouseX_ndc = 2.0f * float(xpos) / float(winWidth) - 1.0f;
+//     mouseY_ndc = 1.0f - 2.0f * float(ypos) / float(winHeight);
+
+//     std::cout << "Mouse Pos: (" << xpos << ", " << ypos << ")" << std::endl; // debugging
+//     std::cout << "Mouse NDC: (" << mouseX_ndc << ", " << mouseY_ndc << ")" << std::endl; // debugging
+//     std::cout << "Window Size: (" << winWidth << ", " << winHeight << ")" << std::endl; // debugging
+
+//     // fix aspect if not square
+//     if (winWidth != winHeight) {
+//         mouseX_ndc *= (float)winWidth / (float)winHeight;
+//     }
+
+//     if (dragging) {
+//         angle = atan2(mouseX_ndc, -mouseY_ndc);  // angle from +Y
+//         angularVelocity = 0.0f;                 // don’t fight the drag
+//     }
+// });
+
+// using framebuffer size for accurate mouse position
+// this will be invalid for double pendulums
+// glfwSetCursorPosCallback(window, [](GLFWwindow* w, double xpos, double ypos){
+
+//     // using framebuffer size to get accurate mouse position
+//     float sx, sy;
+//     glfwGetWindowContentScale(w, &sx, &sy);       // e.g., 2.0, 2.0 on Retina
+//     double x_fb = xpos * sx;
+//     double y_fb = ypos * sy;
+
+//     // safer: use the actual current viewport
+//     int vp[4];
+//     glGetIntegerv(GL_VIEWPORT, vp);               // {x, y, width, height}
+//     mouseX_ndc =  2.0f * float(x_fb - vp[0]) / float(vp[2]) - 1.0f;
+//     mouseY_ndc = -2.0f * float(y_fb - vp[1]) / float(vp[3]) + 1.0f;
+
+//     if (dragging) {
+//         theta1 = atan2(mouseX_ndc, -mouseY_ndc);
+//         angularVelocity = 0.0f;
+//     }
+// });
+
+// glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods) {
+//     if (button != GLFW_MOUSE_BUTTON_LEFT) return;
+
+//     if (action == GLFW_PRESS) {
+//         // bob position from current angle (pivot at origin)
+//         float bobX =  sin(theta1) * ROD_LENGTH;
+//         float bobY =  -cos(theta1) * ROD_LENGTH;
+
+//         float dx = mouseX_ndc - bobX;
+//         float dy = mouseY_ndc - bobY;
+//         float dist = std::sqrt(dx*dx + dy*dy);
+
+//         // pick radius lenient so it's easy to grab
+//         if (dist < CIRCLE_RADIUS * 5.0f)  {
+//             dragging = true;
+//         }
+//     } else if (action == GLFW_RELEASE) {
+//         dragging = false;
+//     }
+// });
