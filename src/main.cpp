@@ -26,12 +26,12 @@
 
 const float ROD_WIDTH = 0.005;
 const float CIRCLE_RADIUS = 0.02f;
-const float ROD_LENGTH = 0.3f;
-const float ROD_LENGTH2 = 0.3f; // length of rod 2
+float ROD_LENGTH = 0.3f;
+float ROD_LENGTH2 = 0.3f; // length of rod 2
 const float GRAVITY = 9.81f; // m/s^2
 const float DAMPING = 0.992f; // Damping factor for pendulum motion
-const float BOB_MASS = 0.1f;
-const float BOB_MASS2 = 0.1f; // Mass of the rod (arbitrary value for simulation)
+float BOB_MASS = 0.1f;
+float BOB_MASS2 = 0.1f; // Mass of the rod (arbitrary value for simulation)
 
 float h = 0.005f;           // fixed timestep
 float accumulator = 0.0f;
@@ -48,8 +48,8 @@ float mouseX_ndc = 0.0f;
 float mouseY_ndc = 0.0f;
 
 // Pendulum state variables
-float angle = M_PI / 3.0f;   
-float angle2 = M_PI / 2.0f;
+float theta1 = M_PI / 3.0f;   
+float theta2 = M_PI / 2.0f;
 float angularVelocity = 0.0f;
 float angularVelocity2 = 0.0f;  // Initial velocity
 
@@ -117,10 +117,10 @@ void SetupCircle() {
 
     // Generate vertices around the circle
     for (int i = 0; i < NUM_VERTICES; ++i) {
-        float angle2 = (2.0 * M_PI * i) / NUM_VERTICES;
+        float theta2 = (2.0 * M_PI * i) / NUM_VERTICES;
         int idx = (i + 1) * 3;  // +1 because first vertex is center
-        CircleVertices[idx] = cos(angle2) * CIRCLE_RADIUS;          // x
-        CircleVertices[idx + 1] = sin(angle2) * CIRCLE_RADIUS;      // y
+        CircleVertices[idx] = cos(theta2) * CIRCLE_RADIUS;          // x
+        CircleVertices[idx + 1] = sin(theta2) * CIRCLE_RADIUS;      // y
         CircleVertices[idx + 2] = 0.0f;                             // z
     }
 
@@ -162,14 +162,43 @@ void DrawCircle() {
 
 // --- PHYSICS FOR PENDULUM ---
 
+// TODO: input formula and params here
+
+// ~~~~~ ANGLE 1 ~~~~~
+/**  (M1 + M2) gsin(angle1) + 
+ *  (M1 + M2) * L1 ANGACCEL1 + 
+ *  M2 * L2 * ANGACCEL2 * cos(angle1 - angle2) + 
+ *  M2 L2 THETADOT2^2 (sin(angle1 - angle2))
+ *  = 0
+*/
+
+// ~~~~~ ANGLE 2 ~~~~~
+// TODO
+
 void UpdatePendulum(float dt) {
-    float angularAcceleration = -(GRAVITY / ROD_LENGTH) * sin(angle);
-    float angularAcceleration2 = -(GRAVITY / ROD_LENGTH) * sin(angle2);
-    
-    // Update angle with damping
-    angularVelocity += angularAcceleration * dt;
-    angularVelocity *= DAMPING; // Apply damping to reduce oscillation over time
-    angle += angularVelocity * dt; // Apply damping to reduce oscillation over time
+    float num1 = -GRAVITY * (2*BOB_MASS+ BOB_MASS2) * sin(theta1);
+    float num2 = -BOB_MASS2 * GRAVITY * sin(theta1 - 2*theta2);
+    float num3 = -2*sin(theta1 - theta2) * BOB_MASS2 *
+                (angularVelocity2*angularVelocity2*ROD_LENGTH2 + angularVelocity*angularVelocity*ROD_LENGTH*cos(theta1 - theta2));
+    float den1 = ROD_LENGTH * (2*BOB_MASS + BOB_MASS2 - BOB_MASS2*cos(2*theta1 - 2*theta2));
+    float theta1_ddot = (num1 + num2 + num3) / den1;
+
+    float num4 = 2*sin(theta1 - theta2) *
+                (angularVelocity*angularVelocity*ROD_LENGTH*(BOB_MASS + BOB_MASS2) +
+                GRAVITY*(BOB_MASS + BOB_MASS2)*cos(theta1) +
+                angularVelocity2*angularVelocity2*ROD_LENGTH2*BOB_MASS2*cos(theta1 - theta2));
+    float den2 = ROD_LENGTH2 * (2*BOB_MASS + BOB_MASS2 - BOB_MASS2*cos(2*theta1 - 2*theta2));
+    float theta2_ddot = num4 / den2;
+
+
+    // Update angular velocities
+    angularVelocity += theta1_ddot * dt;
+    angularVelocity2 += theta2_ddot * dt;
+
+    // Update angles
+    theta1 += angularVelocity * dt;
+    theta2 += angularVelocity2 * dt;
+
 }
 
 // --- DONE WITH PHYSICS FOR PENDULUM ---
@@ -233,7 +262,7 @@ int main(){
         mouseY_ndc = -2.0f * float(y_fb - vp[1]) / float(vp[3]) + 1.0f;
 
         if (dragging) {
-            angle = atan2(mouseX_ndc, -mouseY_ndc);
+            theta1 = atan2(mouseX_ndc, -mouseY_ndc);
             angularVelocity = 0.0f;
         }
     });
@@ -243,8 +272,8 @@ int main(){
 
         if (action == GLFW_PRESS) {
             // bob position from current angle (pivot at origin)
-            float bobX =  sin(angle) * ROD_LENGTH;
-            float bobY =  -cos(angle) * ROD_LENGTH;
+            float bobX =  sin(theta1) * ROD_LENGTH;
+            float bobY =  -cos(theta1) * ROD_LENGTH;
 
             float dx = mouseX_ndc - bobX;
             float dy = mouseY_ndc - bobY;
@@ -286,8 +315,8 @@ int main(){
         prevTime = currTime;
 
         accumulator += frameTime;
-        float interpolatedAngle = angle;
-        float interpolatedAngle2 = angle2;
+        float interpolatedAngle = theta1;
+        float interpolatedAngle2 = theta2;
         if (!dragging) {
             while (accumulator >= h) {
                 UpdatePendulum(h);
@@ -296,12 +325,12 @@ int main(){
 
             float alpha = accumulator / h;
             // Interpolate the angle for smoother rendering
-            interpolatedAngle = angle + alpha * angularVelocity * h;
-            interpolatedAngle2 = angle2 + alpha * angularVelocity2 * h;
+            interpolatedAngle = theta1 + alpha * angularVelocity * h;
+            interpolatedAngle2 = theta2 + alpha * angularVelocity2 * h;
         } else {
             accumulator = 0.0f;
-            interpolatedAngle = angle;
-            interpolatedAngle2 = angle2;
+            interpolatedAngle = theta1;
+            interpolatedAngle2 = theta2;
         }
 
         glClearColor(0.07f, 0.13f, 0.17f, 1.0f);
