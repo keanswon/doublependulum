@@ -6,33 +6,24 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
 #include "vao.h"
 #include "vbo.h"
 #include "ebo.h"
 #include "shaderClass.h"
 
-
-/** INDEPENDENT VARIABLES **/
-/**
- * - angle 1 -- angle from vertical to rod 1
- * - angle 2 -- angle from vertical to rod 2
- * - mass 1 - mass of bob 1 (at the end of rod 1)
- * - mass 2 - mass of bob 2 (at the end of rod 2
- * - rod length 1 - length of rod 1
- * - rod length 2 - length of rod 2
- * 
- * TODO : add sliders for each of these variables
- */
-
 const float ROD_WIDTH = 0.005;
 const float CIRCLE_RADIUS = 0.02f;
+const float GRAVITY = 9.81f; // m/s^2
+
 float ROD_LENGTH = 0.3f;
 float ROD_LENGTH2 = 0.3f; // length of rod 2
-const float GRAVITY = 9.81f; // m/s^2
-const float DAMPING = 0.992f; // Damping factor for pendulum motion
+float DAMPING = 0.992f; // Damping factor for pendulum motion
 float BOB_MASS = 0.1f;
-float BOB_MASS2 = 0.1f; // Mass of the rod (arbitrary value for simulation)
-
+float BOB_MASS2 = 0.1f;
 float h = 0.005f;           // fixed timestep
 float accumulator = 0.0f;
 float prevTime = glfwGetTime();
@@ -48,10 +39,13 @@ float mouseX_ndc = 0.0f;
 float mouseY_ndc = 0.0f;
 
 // Pendulum state variables
-float theta1 = M_PI / 3.0f;   
-float theta2 = M_PI / 2.0f;
+float theta1 = 0;   
+float theta2 = 0;
 float angularVelocity = 0.0f;
 float angularVelocity2 = 0.0f;  // Initial velocity
+
+bool paused = false;
+float theta1_init = theta1, theta2_init = theta2;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     winWidth = width;
@@ -61,8 +55,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 
 
 // --- CREATING SHAPES ---
-
-
 GLuint rectIndices[] = {
     0, 1, 2,
     2, 3, 0
@@ -99,9 +91,9 @@ void DrawRect() {
     rectVAO->Unbind();
 }
 
-const uint NUM_VERTICES = 98;  // Number of vertices around the circle (excluding center)
-GLfloat CircleVertices[(NUM_VERTICES + 2) * 3]; // +1 for center, +1 for closing vertex
-GLuint CircleIndices[NUM_VERTICES + 2]; // +1 for center, +1 for closing vertex
+const uint NUM_VERTICES = 98;
+GLfloat CircleVertices[(NUM_VERTICES + 2) * 3];
+GLuint CircleIndices[NUM_VERTICES + 2];
 
 VAO* circleVAO = nullptr;
 VBO* circleVBO = nullptr;
@@ -110,27 +102,25 @@ EBO* circleEBO = nullptr;
 void SetupCircle() {
     circleVAO = new VAO();
     
-    // Set center vertex
-    CircleVertices[0] = 0.0f;  // center x
-    CircleVertices[1] = 0.0f;  // center y
-    CircleVertices[2] = 0.0f;  // center z
+    // center vertex at (0, 0, 0)
+    CircleVertices[0] = 0.0f;  
+    CircleVertices[1] = 0.0f;  
+    CircleVertices[2] = 0.0f;  
 
-    // Generate vertices around the circle
     for (int i = 0; i < NUM_VERTICES; ++i) {
         float theta2 = (2.0 * M_PI * i) / NUM_VERTICES;
-        int idx = (i + 1) * 3;  // +1 because first vertex is center
+        int idx = (i + 1) * 3;
         CircleVertices[idx] = cos(theta2) * CIRCLE_RADIUS;          // x
         CircleVertices[idx + 1] = sin(theta2) * CIRCLE_RADIUS;      // y
         CircleVertices[idx + 2] = 0.0f;                             // z
     }
 
     int lastIdx = (NUM_VERTICES + 1) * 3;
-    CircleVertices[lastIdx] = CircleVertices[3];     // Same as first outer vertex
+    CircleVertices[lastIdx] = CircleVertices[3];
     CircleVertices[lastIdx + 1] = CircleVertices[4];
     CircleVertices[lastIdx + 2] = CircleVertices[5];
 
-    // Set up indices for triangle fan
-    CircleIndices[0] = 0;  // Center vertex
+    CircleIndices[0] = 0;
     for (int i = 0; i <= NUM_VERTICES; i++) {
         CircleIndices[i + 1] = i + 1;
     }
@@ -142,7 +132,6 @@ void SetupCircle() {
     circleVBO->Bind();
     circleEBO->Bind();
 
-    // Set vertex attribute pointer for position (location = 0)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     
@@ -152,35 +141,22 @@ void SetupCircle() {
 }
 
 void DrawCircle() {
-    circleVAO->Bind();  // Fixed: was using rectVAO
+    circleVAO->Bind();
     glDrawElements(GL_TRIANGLE_FAN, NUM_VERTICES + 2, GL_UNSIGNED_INT, 0);
     circleVAO->Unbind();
 }
 
 // --- DONE WITH SHAPE SETUP ---
 
-
 // --- PHYSICS FOR PENDULUM ---
-
-// TODO: input formula and params here
-
-// ~~~~~ ANGLE 1 ~~~~~
-/**  (M1 + M2) gsin(angle1) + 
- *  (M1 + M2) * L1 ANGACCEL1 + 
- *  M2 * L2 * ANGACCEL2 * cos(angle1 - angle2) + 
- *  M2 L2 THETADOT2^2 (sin(angle1 - angle2))
- *  = 0
-*/
-
-// ~~~~~ ANGLE 2 ~~~~~
-// TODO
-
 void UpdatePendulum(float dt) {
     float num1 = -GRAVITY * (2*BOB_MASS+ BOB_MASS2) * sin(theta1);
     float num2 = -BOB_MASS2 * GRAVITY * sin(theta1 - 2*theta2);
     float num3 = -2*sin(theta1 - theta2) * BOB_MASS2 *
                 (angularVelocity2*angularVelocity2*ROD_LENGTH2 + angularVelocity*angularVelocity*ROD_LENGTH*cos(theta1 - theta2));
     float den1 = ROD_LENGTH * (2*BOB_MASS + BOB_MASS2 - BOB_MASS2*cos(2*theta1 - 2*theta2));
+
+    // angular accel for theta1
     float theta1_ddot = (num1 + num2 + num3) / den1;
 
     float num4 = 2*sin(theta1 - theta2) *
@@ -188,20 +164,27 @@ void UpdatePendulum(float dt) {
                 GRAVITY*(BOB_MASS + BOB_MASS2)*cos(theta1) +
                 angularVelocity2*angularVelocity2*ROD_LENGTH2*BOB_MASS2*cos(theta1 - theta2));
     float den2 = ROD_LENGTH2 * (2*BOB_MASS + BOB_MASS2 - BOB_MASS2*cos(2*theta1 - 2*theta2));
+    
+    // angular accel for theta2
     float theta2_ddot = num4 / den2;
 
 
-    // Update angular velocities
+    // update angular velocities
     angularVelocity += theta1_ddot * dt;
     angularVelocity2 += theta2_ddot * dt;
 
-    // Update angles
+    // update angles
     theta1 += angularVelocity * dt;
     theta2 += angularVelocity2 * dt;
+
+    // normalize angles to be between 0 and 2*PI
+    theta1 = fmod(theta1, 2 * M_PI);
+    theta2 = fmod(theta2, 2 * M_PI);
 
 }
 
 // --- DONE WITH PHYSICS FOR PENDULUM ---
+
 
 int main(){
     // initialize GLFW
@@ -247,46 +230,46 @@ int main(){
 
     // using framebuffer size for accurate mouse position
     // this will be invalid for double pendulums
-    glfwSetCursorPosCallback(window, [](GLFWwindow* w, double xpos, double ypos){
+    // glfwSetCursorPosCallback(window, [](GLFWwindow* w, double xpos, double ypos){
 
-        // using framebuffer size to get accurate mouse position
-        float sx, sy;
-        glfwGetWindowContentScale(w, &sx, &sy);       // e.g., 2.0, 2.0 on Retina
-        double x_fb = xpos * sx;
-        double y_fb = ypos * sy;
+    //     // using framebuffer size to get accurate mouse position
+    //     float sx, sy;
+    //     glfwGetWindowContentScale(w, &sx, &sy);       // e.g., 2.0, 2.0 on Retina
+    //     double x_fb = xpos * sx;
+    //     double y_fb = ypos * sy;
 
-        // safer: use the actual current viewport
-        int vp[4];
-        glGetIntegerv(GL_VIEWPORT, vp);               // {x, y, width, height}
-        mouseX_ndc =  2.0f * float(x_fb - vp[0]) / float(vp[2]) - 1.0f;
-        mouseY_ndc = -2.0f * float(y_fb - vp[1]) / float(vp[3]) + 1.0f;
+    //     // safer: use the actual current viewport
+    //     int vp[4];
+    //     glGetIntegerv(GL_VIEWPORT, vp);               // {x, y, width, height}
+    //     mouseX_ndc =  2.0f * float(x_fb - vp[0]) / float(vp[2]) - 1.0f;
+    //     mouseY_ndc = -2.0f * float(y_fb - vp[1]) / float(vp[3]) + 1.0f;
 
-        if (dragging) {
-            theta1 = atan2(mouseX_ndc, -mouseY_ndc);
-            angularVelocity = 0.0f;
-        }
-    });
+    //     if (dragging) {
+    //         theta1 = atan2(mouseX_ndc, -mouseY_ndc);
+    //         angularVelocity = 0.0f;
+    //     }
+    // });
 
-    glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods) {
-        if (button != GLFW_MOUSE_BUTTON_LEFT) return;
+    // glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods) {
+    //     if (button != GLFW_MOUSE_BUTTON_LEFT) return;
 
-        if (action == GLFW_PRESS) {
-            // bob position from current angle (pivot at origin)
-            float bobX =  sin(theta1) * ROD_LENGTH;
-            float bobY =  -cos(theta1) * ROD_LENGTH;
+    //     if (action == GLFW_PRESS) {
+    //         // bob position from current angle (pivot at origin)
+    //         float bobX =  sin(theta1) * ROD_LENGTH;
+    //         float bobY =  -cos(theta1) * ROD_LENGTH;
 
-            float dx = mouseX_ndc - bobX;
-            float dy = mouseY_ndc - bobY;
-            float dist = std::sqrt(dx*dx + dy*dy);
+    //         float dx = mouseX_ndc - bobX;
+    //         float dy = mouseY_ndc - bobY;
+    //         float dist = std::sqrt(dx*dx + dy*dy);
 
-            // pick radius lenient so it's easy to grab
-            if (dist < CIRCLE_RADIUS * 5.0f)  {
-                dragging = true;
-            }
-        } else if (action == GLFW_RELEASE) {
-            dragging = false;
-        }
-    });
+    //         // pick radius lenient so it's easy to grab
+    //         if (dist < CIRCLE_RADIUS * 5.0f)  {
+    //             dragging = true;
+    //         }
+    //     } else if (action == GLFW_RELEASE) {
+    //         dragging = false;
+    //     }
+    // });
 
 
     // Bring window into the current context
@@ -296,6 +279,14 @@ int main(){
     gladLoadGL();
     glfwSwapInterval(1); // Enable vsync
     glEnable(GL_MULTISAMPLE);
+
+    // --- IMGUI SETUP ---
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
     
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
@@ -303,6 +294,8 @@ int main(){
     glViewport(0, 0, width, height);    
 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+    
     
     // Create shader program using ShaderClass
     Shader shaderProgram("shaders/default.vert", "shaders/default.frag");
@@ -310,6 +303,89 @@ int main(){
     SetupCircle();
 
     while (!glfwWindowShouldClose(window)) {
+        // build ui
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImVec2 window_pos = ImVec2(io.DisplaySize.x - 10, io.DisplaySize.y - 10);
+        ImVec2 window_pivot = ImVec2(1.0f, 1.0f);
+        ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pivot);
+        ImGui::SetNextWindowBgAlpha(0.8f);
+
+        if (ImGui::Begin("Controls", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Checkbox("Pause", &paused);
+
+            ImGui::PushItemWidth(150);
+            ImGui::SliderFloat("Damping", &DAMPING, 0.90f, 1.0f, "%.4f");
+
+            if(ImGui::InputFloat("Rod 1 length", &ROD_LENGTH, 0.05f, 0.8f, "%.01f")) paused = true;
+            if(ImGui::InputFloat("Rod 2 length", &ROD_LENGTH2, 0.05f, 0.8f, "%.01f")) paused = true;
+
+            if(ImGui::InputFloat("Mass 1", &BOB_MASS1, 0.05f, 0.8f, "%.01f")) paused = true;
+            if(ImGui::InputFloat("Mass 2", &BOB_MASS2 0.05f, 0.8f, "%.01f")) paused = true;
+
+            if (ImGui::SliderAngle("Angle 1", &theta1, -180.0f, 180.0f)) { 
+                paused = true;
+            }
+
+            ImGui::SameLine();
+
+            ImGui::PushItemWidth(100);
+            static float a1_deg = 0.f, a2_deg = 0.f;
+            a1_deg = theta1 * 180.0f / M_PI;
+            if (ImGui::InputFloat("Angle 1 (deg)", &a1_deg, 1.0f, 5.0f, "%.1f")) {
+                paused = true;
+            }
+            ImGui::PopItemWidth();
+
+            if (ImGui::IsItemDeactivatedAfterEdit()) {                         
+                theta1 = a1_deg * M_PI / 180.0f;
+                angularVelocity = 0.0f;
+                accumulator = 0.0f;
+            }
+
+            if (ImGui::SliderAngle("Angle 2", &theta2, -180.0f, 180.0f)) {
+                paused = true;
+            }
+            ImGui::SameLine();
+
+            ImGui::PushItemWidth(100);
+            a2_deg = theta2 * 180.0f / M_PI;
+            if(ImGui::InputFloat("Angle 2 (deg)", &a2_deg, 1.0f, 5.0f, "%.1f")) {
+                paused = true;
+            } 
+            ImGui::PopItemWidth();
+            
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                theta2 = a2_deg * M_PI / 180.0f;
+                angularVelocity = 0.0f;
+                angularVelocity2 = 0.0f;
+                accumulator = 0.0f;
+            }
+            ImGui::PopItemWidth();
+
+            if (ImGui::Button("Reset")) {
+                theta1 = theta1_init; theta2 = theta2_init;
+                angularVelocity = 0; angularVelocity2 = 0;
+                accumulator = 0;
+                BOB_MASS2=BOB_MASS=1.0f;
+                ROD_LENGTH=ROD_LENGTH2=0.3f;
+                DAMPING=0.992f;
+                paused = true;
+            }
+
+            ImGui::SameLine();
+
+            if (ImGui::Button("Start")) {
+                paused = false;
+                angularVelocity = 0.0f;
+                angularVelocity2 = 0.0f;
+            }
+        }
+        ImGui::End();
+
+        // simulate pendulum
         float currTime = glfwGetTime();
         float frameTime = currTime - prevTime;
         prevTime = currTime;
@@ -317,7 +393,8 @@ int main(){
         accumulator += frameTime;
         float interpolatedAngle = theta1;
         float interpolatedAngle2 = theta2;
-        if (!dragging) {
+
+        if (!paused) {
             while (accumulator >= h) {
                 UpdatePendulum(h);
                 accumulator -= h;
@@ -337,21 +414,19 @@ int main(){
         glClear(GL_COLOR_BUFFER_BIT);
         shaderProgram.Activate();
         
-        // Send transformation to shader and draw rods
+        // draw shapes: two rods and two circles (bobs)
         GLuint transformLoc = glGetUniformLocation(shaderProgram.ID, "transform");
-        // 1) Unscaled base transforms (for correct circle shapes)
+        
         glm::mat4 T1_noscale = glm::rotate(glm::mat4(1.0f), interpolatedAngle,  glm::vec3(0,0,1));
         glm::mat4 T2_noscale = glm::translate(T1_noscale, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
         T2_noscale = glm::rotate(T2_noscale, interpolatedAngle2, glm::vec3(0,0,1));
 
-        // 2) Scaled transforms for rods (scale along Y by each rod’s length)
         glm::mat4 Rod1 = glm::rotate(glm::mat4(1.0f), interpolatedAngle, glm::vec3(0,0,1));
         Rod1 = glm::scale(Rod1, glm::vec3(1.0f, ROD_LENGTH, 1.0f));
         glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(Rod1));
         DrawRect();
 
         glm::mat4 Rod2 = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-        // place Rod2 at the end of Rod1, then rotate + scale it
         Rod2 = glm::rotate(glm::mat4(1.0f), interpolatedAngle, glm::vec3(0,0,1));
         Rod2 = glm::translate(Rod2, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
         Rod2 = glm::rotate(Rod2, interpolatedAngle2, glm::vec3(0,0,1));
@@ -359,10 +434,7 @@ int main(){
         glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(Rod2));
         DrawRect();
 
-        // 3) Circles: use the unscaled transforms so they stay round
         glm::mat4 T1_noscale_bob = glm::translate(T1_noscale, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
-
-        // Use the translated matrix here (not T1_noscale)
         glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(T1_noscale_bob));
         DrawCircle();  // first bob at end of rod1
 
@@ -370,8 +442,11 @@ int main(){
         glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(Tbob));
         DrawCircle();  // second bob at end of rod2
 
-
+        // render
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         
+        // swap buffers and poll events
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
