@@ -11,12 +11,26 @@
 #include "ebo.h"
 #include "shaderClass.h"
 
+
+/** INDEPENDENT VARIABLES **/
+/**
+ * - angle 1 -- angle from vertical to rod 1
+ * - angle 2 -- angle from vertical to rod 2
+ * - mass 1 - mass of bob 1 (at the end of rod 1)
+ * - mass 2 - mass of bob 2 (at the end of rod 2
+ * - rod length 1 - length of rod 1
+ * - rod length 2 - length of rod 2
+ * 
+ * TODO : add sliders for each of these variables
+ */
+
 const float ROD_WIDTH = 0.005;
 const float CIRCLE_RADIUS = 0.02f;
 const float ROD_LENGTH = 0.3f;
 const float GRAVITY = 9.81f; // m/s^2
 const float DAMPING = 0.992f; // Damping factor for pendulum motion
-const float ROD_MASS = 0.1f; // Mass of the rod (arbitrary value for simulation)
+const float BOB_MASS = 0.1f;
+const float BOB_MASS2 = 0.1f; // Mass of the rod (arbitrary value for simulation)
 
 float h = 0.005f;           // fixed timestep
 float accumulator = 0.0f;
@@ -34,7 +48,9 @@ float mouseY_ndc = 0.0f;
 
 // Pendulum state variables
 float angle = M_PI / 3.0f;   
-float angularVelocity = 0.0f;  // Initial velocity
+float angle2 = M_PI / 2.0f;
+float angularVelocity = 0.0f;
+float angularVelocity2 = 0.0f;  // Initial velocity
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     winWidth = width;
@@ -146,6 +162,7 @@ void DrawCircle() {
 
 void UpdatePendulum(float dt) {
     float angularAcceleration = -(GRAVITY / ROD_LENGTH) * sin(angle);
+    float angularAcceleration2 = -(GRAVITY / ROD_LENGTH) * sin(angle2);
     
     // Update angle with damping
     angularVelocity += angularAcceleration * dt;
@@ -198,6 +215,7 @@ int main(){
     // });
 
     // using framebuffer size for accurate mouse position
+    // this will be invalid for double pendulums
     glfwSetCursorPosCallback(window, [](GLFWwindow* w, double xpos, double ypos){
 
         // using framebuffer size to get accurate mouse position
@@ -267,6 +285,7 @@ int main(){
 
         accumulator += frameTime;
         float interpolatedAngle = angle;
+        float interpolatedAngle2 = angle2;
         if (!dragging) {
             while (accumulator >= h) {
                 UpdatePendulum(h);
@@ -276,29 +295,35 @@ int main(){
             float alpha = accumulator / h;
             // Interpolate the angle for smoother rendering
             interpolatedAngle = angle + alpha * angularVelocity * h;
+            interpolatedAngle2 = angle2 + alpha * angularVelocity2 * h;
         } else {
             accumulator = 0.0f;
             interpolatedAngle = angle;
+            interpolatedAngle2 = angle2;
         }
 
         glClearColor(0.07f, 0.13f, 0.17f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         shaderProgram.Activate();
         
-        // Update transformation matrix for the rod
-        glm::mat4 transform = glm::mat4(1.0f);
-        transform = glm::rotate(transform, interpolatedAngle, glm::vec3(0.0f, 0.0f, 1.0f));
-        
-        // Send transformation to shader and draw rod
+        // Send transformation to shader and draw rods
         GLuint transformLoc = glGetUniformLocation(shaderProgram.ID, "transform");
-        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+        glm::mat4 T1 = glm::rotate(glm::mat4(1.0f), interpolatedAngle, glm::vec3(0,0,1));
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(T1));
         DrawRect();
 
-        // Update transform matrix for the bob (circle) - move it to end of rod
-        transform = glm::translate(transform, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
-        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+        glm::mat4 T2 = glm::translate(T1, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
+        T2 = glm::rotate(T2, interpolatedAngle2, glm::vec3(0,0,1));
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(T2));
+        DrawRect();
+
+        // draw bobs now
         DrawCircle();
 
+        // Update transform matrix for the bob (circle) - move it to end of rod
+        glm::mat4 Tbob = glm::translate(T2, glm::vec3(0.0f, -ROD_LENGTH, 0.0f));
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(Tbob));
+        DrawCircle();
         
         glfwSwapBuffers(window);
         glfwPollEvents();
