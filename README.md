@@ -1,5 +1,7 @@
 # Double Pendulum Simulation (OpenGL + ImGui)
 
+---
+
 A real-time, interactive **double pendulum** simulation built with **C++**, **OpenGL**, **GLFW**, **GLAD**, **GLM**, and **Dear ImGui**.  
 The simulation allows you to adjust physical parameters, pause/resume motion, and visualize chaotic dynamics in real time.
 
@@ -35,18 +37,20 @@ Small differences in initial conditions grow exponentially over time.
 
 ## Screenshots
 
-<p align="center">
-  <table>
-    <tr>
-      <td align="center"><b>Control Panel</b></td>
-      <td align="center"><b>Simulation</b></td>
-    </tr>
-    <tr>
-      <td align="center"><img src="img/controls.png" alt="Controls Screenshot" style="max-width: 100%; height: auto;" width="350"/></td>
-      <td align="center"><img src="img/window2.png" alt="Simulation Screenshot" style="max-width: 100%; height: auto;" width="350"/></td>
-    </tr>
-  </table>
-</p>
+<div align="center">
+
+<table>
+<tr>
+  <th>Control Panel</th>
+  <th>Simulation</th>
+</tr>
+<tr>
+  <td><img src="img/controls.png" alt="Controls Screenshot" width="350"></td>
+  <td><img src="img/window2.png" alt="Simulation Screenshot" width="350"></td>
+</tr>
+</table>
+
+</div>
 
 ---
 
