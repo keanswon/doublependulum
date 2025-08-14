@@ -1,7 +1,5 @@
 # Double Pendulum Simulation (OpenGL + ImGui)
 
----
-
 A real-time, interactive **double pendulum** simulation built with **C++**, **OpenGL**, **GLFW**, **GLAD**, **GLM**, and **Dear ImGui**.  
 The simulation allows you to adjust physical parameters, pause/resume motion, and visualize chaotic dynamics in real time.
 
@@ -70,3 +68,9 @@ Small differences in initial conditions grow exponentially over time.
    ```bash
    git clone https://github.com/keanswon/doublependulum.git
    cd double-pendulum-opengl
+
+## Sources
+
+Inspiration taken from <a href="https://www.youtube.com/watch?v=dtjb2OhEQcU">this video</a>
+
+Physics explained in <a href="https://www.youtube.com/watch?v=rZbc_rhnFZc&">this video</a>
